@@ -27,6 +27,10 @@ int currentRight = 0;
 bool reverseMode = false;
 bool safetyStop = true;
 unsigned long lastDebugMs = 0;
+unsigned long ch5DebounceTimer = 0;
+int lastCh5Value = 0;
+int stableCh5Value = 0;
+const unsigned long DEBOUNCE_DELAY_MS = 50;
 RcChannelState ch1State = {0, 0, 0, false}; 
 RcChannelState ch3State = {0, 0, 0, false};
 RcChannelState ch5State = {0, 0, 0, false}; 
@@ -236,8 +240,20 @@ void loop() {
     return;
   }
 
+  // Debounce ch5 input to avoid rapid toggling of reverse mode
+  if (abs(rc.ch5 - lastCh5Value) > 20) {
+    ch5DebounceTimer = millis();
+    lastCh5Value = rc.ch5;
+  }
+
+  //if signal didnt change > 50 ms
+  if ((millis() - ch5DebounceTimer) > DEBOUNCE_DELAY_MS) {
+    if (stableCh5Value == 0) stableCh5Value = rc.ch5;
+    stableCh5Value = rc.ch5;
+  }
+
   bool throttleLow = rc.ch3 <= REVERSE_ARM_MAX_US;
-  bool requestedReverse = rc.ch5Ok && rc.ch5 < CH5_REVERSE_THRESHOLD_US;
+  bool requestedReverse = rc.ch5Ok && stableCh5Value < CH5_REVERSE_THRESHOLD_US;
 
   if (requestedReverse != reverseMode) {
     if (throttleLow) {
