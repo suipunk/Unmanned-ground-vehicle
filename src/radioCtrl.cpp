@@ -4,9 +4,9 @@
 #include "debugPrint.h"
 #include "ctrlFunctions.h"
 
-RcChannelState ch1State = {RC_MID_US, 0, 0, false};
-RcChannelState ch3State = {RC_MIN_US, 0, 0, false};
-RcChannelState ch5State = {RC_MAX_US, 0, 0, false};
+RcChannelState ch1State = {0, 0, 0, false};
+RcChannelState ch3State = {0, 0, 0, false};
+RcChannelState ch5State = {0, 0, 0, false};
 uint8_t rcReadStep = 0;
 
 void updateRcChannel(uint8_t pin, RcChannelState *channel) {
