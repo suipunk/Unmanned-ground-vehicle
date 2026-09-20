@@ -1,26 +1,12 @@
+#include <Arduino.h>
+#include "debugPrint.h"
 #include "Pins.h"
+#include "ctrlFunctions.h"
 #include "RadioConfig.h"
+#include "radioCtrl.h"
 
-struct RcInput {
-  int ch1;
-  int ch3;
-  int ch5;
-  unsigned long ch1Raw;
-  unsigned long ch3Raw;
-  unsigned long ch5Raw;
-  bool ch1Ok;
-  bool ch3Ok;
-  bool ch5Ok;
-  uint8_t readStep;
-  bool valid;
-};
 
-struct RcChannelState {
-  int value;
-  unsigned long raw;
-  unsigned long lastOkMs;
-  bool ok;
-};
+
 
 int currentLeft = 0;
 int currentRight = 0;
@@ -31,58 +17,9 @@ unsigned long ch5DebounceTimer = 0;
 int lastCh5Value = 0;
 int stableCh5Value = 0;
 const unsigned long DEBOUNCE_DELAY_MS = 50;
-RcChannelState ch1State = {0, 0, 0, false}; 
-RcChannelState ch3State = {0, 0, 0, false};
-RcChannelState ch5State = {0, 0, 0, false}; 
-uint8_t rcReadStep = 0;
 
-void updateRcChannel(uint8_t pin, RcChannelState *channel) {
-  unsigned long pulse = pulseIn(pin, HIGH, RC_TIMEOUT_US);
-  channel->raw = pulse;
 
-  if (pulse >= RC_VALID_MIN_US && pulse <= RC_VALID_MAX_US) {
-    channel->value = constrain((int)pulse, RC_MIN_US, RC_MAX_US);
-    channel->lastOkMs = millis();
-  }
 
-  channel->ok = millis() - channel->lastOkMs <= SIGNAL_LOSS_TIMEOUT_MS;
-}
-
-RcInput readRadio() {
-  uint8_t currentReadStep = rcReadStep;
-
-  if (currentReadStep == 0) {
-    updateRcChannel(PIN_RC_CH1, &ch1State);
-  } else if (currentReadStep == 1) {
-    updateRcChannel(PIN_RC_CH3, &ch3State);
-  } else {
-    updateRcChannel(PIN_RC_CH5, &ch5State);
-  }
-
-  rcReadStep++;
-  if (rcReadStep > 2) {
-    rcReadStep = 0;
-  }
-
-  unsigned long now = millis();
-  ch1State.ok = now - ch1State.lastOkMs <= SIGNAL_LOSS_TIMEOUT_MS;
-  ch3State.ok = now - ch3State.lastOkMs <= SIGNAL_LOSS_TIMEOUT_MS;
-  ch5State.ok = now - ch5State.lastOkMs <= SIGNAL_LOSS_TIMEOUT_MS;
-
-  RcInput rc;
-  rc.ch1 = ch1State.value;
-  rc.ch3 = ch3State.value;
-  rc.ch5 = ch5State.value;
-  rc.ch1Raw = ch1State.raw;
-  rc.ch3Raw = ch3State.raw;
-  rc.ch5Raw = ch5State.raw;
-  rc.ch1Ok = ch1State.ok;
-  rc.ch3Ok = ch3State.ok;
-  rc.ch5Ok = ch5State.ok;
-  rc.readStep = currentReadStep;
-  rc.valid = rc.ch1Ok && rc.ch3Ok && rc.ch5Ok;
-  return rc;
-}
 
 int centerChannelToSigned(int pulse, int reverse) {
   int value = (pulse - RC_MID_US) * reverse;
@@ -143,68 +80,24 @@ void writeMotors(int leftTarget, int rightTarget) {
 }
 
 void stopMotorsNow() {
+  DEBUG_PRINTLN("Stopping motors immediately");
   currentLeft = 0;
   currentRight = 0;
   analogWrite(PIN_MOTOR_L_PWM, 0);
   analogWrite(PIN_MOTOR_R_PWM, 0);
   digitalWrite(PIN_MOTOR_L_REV, LOW);
   digitalWrite(PIN_MOTOR_R_REV, LOW);
+  DEBUG_PRINTLN("Motors stopped");
 }
 
-void setup() {
-  DEBUG_BEGIN(SERIAL_BAUD);
-  delay(10);
-  DEBUG_PRINTLN("Setup begin");
-  DEBUG_PRINT("Pins RC ch1=");
-  DEBUG_PRINT(PIN_RC_CH1);
-  DEBUG_PRINT(" ch3=");
-  DEBUG_PRINT(PIN_RC_CH3);
-  DEBUG_PRINT(" ch5=");
-  DEBUG_PRINTLN(PIN_RC_CH5);
-  DEBUG_PRINT("Pins motor R pwm=");
-  DEBUG_PRINT(PIN_MOTOR_R_PWM);
-  DEBUG_PRINT(" rev=");
-  DEBUG_PRINT(PIN_MOTOR_R_REV);
-  DEBUG_PRINT(" L pwm=");
-  DEBUG_PRINT(PIN_MOTOR_L_PWM);
-  DEBUG_PRINT(" rev=");
-  DEBUG_PRINTLN(PIN_MOTOR_L_REV);
-  DEBUG_PRINT("Config throttleStart=");
-  DEBUG_PRINT(THROTTLE_START_US);
-  DEBUG_PRINT(" reverseArm=");
-  DEBUG_PRINT(REVERSE_ARM_MAX_US);
-  DEBUG_PRINT(" ch5Threshold=");
-  DEBUG_PRINT(CH5_REVERSE_THRESHOLD_US);
-  DEBUG_PRINT(" rcTimeout=");
-  DEBUG_PRINT(RC_TIMEOUT_US);
-  DEBUG_PRINT(" signalLoss=");
-  DEBUG_PRINTLN(SIGNAL_LOSS_TIMEOUT_MS);
 
-  DEBUG_PRINTLN("Setup input pins start");
-  pinMode(PIN_RC_CH1, INPUT);
-    pinMode(PIN_RC_CH2, INPUT);
 
-  pinMode(PIN_RC_CH3, INPUT);
-  pinMode(PIN_RC_CH5, INPUT);
-  DEBUG_PRINTLN("Setup input pins end");
-
-  DEBUG_PRINTLN("Setup output pins start");
-  pinMode(PIN_MOTOR_L_PWM, OUTPUT);
-  pinMode(PIN_MOTOR_L_REV, OUTPUT);
-  pinMode(PIN_MOTOR_R_PWM, OUTPUT);
-  pinMode(PIN_MOTOR_R_REV, OUTPUT);
-  DEBUG_PRINTLN("Setup output pins end");
-
+void setup() {  
+  setupDebugMode();
+  setupInputPins();
+  setupOutputPins();
   stopMotorsNow();
-
-  DEBUG_PRINTLN("Waiting for radio signal");
-  while (true) {
-    RcInput rc = readRadio();
-    if (rc.valid) {
-      break;
-    }
-  }
-
+  validateRadioSignal();
   DEBUG_PRINTLN("Setup ended");
 }
 

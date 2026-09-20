@@ -2,6 +2,27 @@
 
 #include <Arduino.h>
 
+struct RcInput {
+  int ch1;
+  int ch3;
+  int ch5;
+  unsigned long ch1Raw;
+  unsigned long ch3Raw;
+  unsigned long ch5Raw;
+  bool ch1Ok;
+  bool ch3Ok;
+  bool ch5Ok;
+  uint8_t readStep;
+  bool valid;
+};
+
+struct RcChannelState {
+  int value;
+  unsigned long raw;
+  unsigned long lastOkMs;
+  bool ok;
+};
+
 const int RC_MIN_US = 1000;
 const int RC_MID_US = 1500;
 const int RC_MAX_US = 2000;
@@ -18,19 +39,11 @@ const int CH5_REVERSE_THRESHOLD_US = 1300;
 
 const int MOTOR_PWM_MAX = 255;
 
-// #define DEBUG_MODE 1
+
+
 const unsigned long DEBUG_INTERVAL_MS = 200;
 const unsigned long SERIAL_BAUD = 9600;
 
-#ifdef DEBUG_MODE
-  #define DEBUG_BEGIN(baud) Serial.begin(baud)
-  #define DEBUG_PRINT(value) Serial.print(value)
-  #define DEBUG_PRINTLN(value) Serial.println(value)
-#else
-  #define DEBUG_BEGIN(baud)
-  #define DEBUG_PRINT(value)
-  #define DEBUG_PRINTLN(value)
-#endif
 
 const int RAMP_STEP_UP = 4;
 const int RAMP_STEP_DOWN = 10;
