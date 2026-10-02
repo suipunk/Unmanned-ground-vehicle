@@ -4,6 +4,7 @@
 #include "ctrlFunctions.h"
 #include "RadioConfig.h"
 #include "radioCtrl.h"
+#include "telemetryLog.h"
 
 
 
@@ -90,63 +91,72 @@ void stopMotorsNow() {
   DEBUG_PRINTLN("Motors stopped");
 }
 
-
-
-void setup() {  
-  setupDebugMode();
-  setupInputPins();
-  setupOutputPins();
-  stopMotorsNow();
-  validateRadioSignal();
-  DEBUG_PRINTLN("Setup ended");
+// Helpers shared between the debounce step and the safety-stop branch
+bool isThrottleLow(const RcInput &rc) {
+  return rc.ch3 <= REVERSE_ARM_MAX_US;
 }
 
-void loop() {
-  RcInput rc = readRadio();
+bool isReverseRequested(const RcInput &rc) {
+  return rc.ch5Ok && stableCh5Value < CH5_REVERSE_THRESHOLD_US;
+}
 
-  if (!rc.valid) {
-    safetyStop = true;
-    stopMotorsNow();
-    if (millis() - lastDebugMs >= DEBUG_INTERVAL_MS) {
-      lastDebugMs = millis();
-      DEBUG_PRINT("INVALID SIGNAL ch1=");
-      DEBUG_PRINT(rc.ch1);
-      DEBUG_PRINT(" raw1=");
-      DEBUG_PRINT(rc.ch1Raw);
-      DEBUG_PRINT(" ok1=");
-      DEBUG_PRINT(rc.ch1Ok);
-      DEBUG_PRINT(" ch3=");
-      DEBUG_PRINT(rc.ch3);
-      DEBUG_PRINT(" raw3=");
-      DEBUG_PRINT(rc.ch3Raw);
-      DEBUG_PRINT(" ok3=");
-      DEBUG_PRINT(rc.ch3Ok);
-      DEBUG_PRINT(" ch5=");
-      DEBUG_PRINT(rc.ch5);
-      DEBUG_PRINT(" raw5=");
-      DEBUG_PRINT(rc.ch5Raw);
-      DEBUG_PRINT(" ok5=");
-      DEBUG_PRINT(rc.ch5Ok);
-      DEBUG_PRINT(" step=");
-      DEBUG_PRINTLN(rc.readStep);
-    }
-    return;
+
+
+//loopsplit into functions
+// Returns true if the caller should stop processing this cycle (invalid RC signal)
+bool handleInvalidSignal(const RcInput &rc) {
+  if (rc.valid) {
+    return false;
   }
 
+  safetyStop = true;
+  stopMotorsNow();
+
+  if (millis() - lastDebugMs >= DEBUG_INTERVAL_MS) {
+    lastDebugMs = millis();
+    DEBUG_PRINT("INVALID SIGNAL ch1=");
+    DEBUG_PRINT(rc.ch1);
+    DEBUG_PRINT(" raw1=");
+    DEBUG_PRINT(rc.ch1Raw);
+    DEBUG_PRINT(" ok1=");
+    DEBUG_PRINT(rc.ch1Ok);
+    DEBUG_PRINT(" ch3=");
+    DEBUG_PRINT(rc.ch3);
+    DEBUG_PRINT(" raw3=");
+    DEBUG_PRINT(rc.ch3Raw);
+    DEBUG_PRINT(" ok3=");
+    DEBUG_PRINT(rc.ch3Ok);
+    DEBUG_PRINT(" ch5=");
+    DEBUG_PRINT(rc.ch5);
+    DEBUG_PRINT(" raw5=");
+    DEBUG_PRINT(rc.ch5Raw);
+    DEBUG_PRINT(" ok5=");
+    DEBUG_PRINT(rc.ch5Ok);
+    DEBUG_PRINT(" step=");
+    DEBUG_PRINTLN(rc.readStep);
+  }
+
+  logTelemetryRow("INVALID", rc, 0, 0, 0, 0, currentLeft, currentRight,
+                   reverseMode, false, false);
+  return true;
+}
+
+// Debounces ch5 and updates reverseMode and safetyStop 
+void updateReverseDebounce(const RcInput &rc) {
   // Debounce ch5 input to avoid rapid toggling of reverse mode
   if (abs(rc.ch5 - lastCh5Value) > 20) {
     ch5DebounceTimer = millis();
     lastCh5Value = rc.ch5;
   }
 
-  //if signal didnt change > 50 ms
+  // if signal didnt change more than 50 ms
   if ((millis() - ch5DebounceTimer) > DEBOUNCE_DELAY_MS) {
     if (stableCh5Value == 0) stableCh5Value = rc.ch5;
     stableCh5Value = rc.ch5;
   }
 
-  bool throttleLow = rc.ch3 <= REVERSE_ARM_MAX_US;
-  bool requestedReverse = rc.ch5Ok && stableCh5Value < CH5_REVERSE_THRESHOLD_US;
+  bool throttleLow = isThrottleLow(rc);
+  bool requestedReverse = isReverseRequested(rc);
 
   if (requestedReverse != reverseMode) {
     if (throttleLow) {
@@ -160,25 +170,40 @@ void loop() {
   if (throttleLow) {
     safetyStop = false;
   }
+}
 
-  if (safetyStop) {
-    writeMotors(0, 0);
-    if (millis() - lastDebugMs >= DEBUG_INTERVAL_MS) {
-      lastDebugMs = millis();
-      DEBUG_PRINT("SAFETY STOP ch3=");
-      DEBUG_PRINT(rc.ch3);
-      DEBUG_PRINT(" ch5=");
-      DEBUG_PRINT(rc.ch5);
-      DEBUG_PRINT(" reverse=");
-      DEBUG_PRINT(reverseMode);
-      DEBUG_PRINT(" throttleLow=");
-      DEBUG_PRINT(throttleLow);
-      DEBUG_PRINT(" requestedReverse=");
-      DEBUG_PRINTLN(requestedReverse);
-    }
-    return;
+// Returns true if the caller should stop processing this cycle (safety stop active)
+bool handleSafetyStop(const RcInput &rc) {
+  if (!safetyStop) {
+    return false;
   }
 
+  writeMotors(0, 0);
+
+  bool throttleLow = isThrottleLow(rc);
+  bool requestedReverse = isReverseRequested(rc);
+
+  if (millis() - lastDebugMs >= DEBUG_INTERVAL_MS) {
+    lastDebugMs = millis();
+    DEBUG_PRINT("SAFETY STOP ch3=");
+    DEBUG_PRINT(rc.ch3);
+    DEBUG_PRINT(" ch5=");
+    DEBUG_PRINT(rc.ch5);
+    DEBUG_PRINT(" reverse=");
+    DEBUG_PRINT(reverseMode);
+    DEBUG_PRINT(" throttleLow=");
+    DEBUG_PRINT(throttleLow);
+    DEBUG_PRINT(" requestedReverse=");
+    DEBUG_PRINTLN(requestedReverse);
+  }
+
+  logTelemetryRow("SAFETY", rc, 0, 0, 0, 0, currentLeft, currentRight,
+                   reverseMode, throttleLow, requestedReverse);
+  return true;
+}
+
+// Computes targets, drives motors, logs/debugs
+void driveMotors(const RcInput &rc) {
   int power = throttleToPower(rc.ch3);
   int ch1Turn = centerChannelToSigned(rc.ch1, CH1_REVERSE);
   int steering = constrain(-ch1Turn, -MOTOR_PWM_MAX, MOTOR_PWM_MAX);
@@ -234,4 +259,35 @@ void loop() {
     DEBUG_PRINT(" revR=");
     DEBUG_PRINTLN(currentRight < 0);
   }
+
+  logTelemetryRow("DRIVE", rc, power, steering, leftTarget, rightTarget,
+                   currentLeft, currentRight, reverseMode, false, false);
+}
+
+
+
+void setup() {
+  setupDebugMode();
+  setupInputPins();
+  setupOutputPins();
+  stopMotorsNow();  
+  setupTelemetryLog();
+  validateRadioSignal();
+  DEBUG_PRINTLN("Setup ended");
+}
+
+void loop() {
+  RcInput rc = readRadio();
+
+  if (handleInvalidSignal(rc)) {
+    return;
+  }
+
+  updateReverseDebounce(rc);
+
+  if (handleSafetyStop(rc)) {
+    return;
+  }
+
+  driveMotors(rc);
 }
