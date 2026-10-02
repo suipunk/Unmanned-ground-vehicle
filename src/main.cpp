@@ -94,7 +94,6 @@ void stopMotorsNow() {
 
 void setup() {  
   setupDebugMode();
-  DEBUG_WEBLOG_BEGIN();
   setupInputPins();
   setupOutputPins();
   stopMotorsNow();
@@ -103,7 +102,6 @@ void setup() {
 }
 
 void loop() {
-  DEBUG_WEBLOG_LOOP();
   RcInput rc = readRadio();
 
   if (!rc.valid) {
