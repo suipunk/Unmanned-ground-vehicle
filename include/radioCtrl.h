@@ -8,5 +8,5 @@ extern RcChannelState ch5State;
 extern uint8_t rcReadStep;
 
 void updateRcChannel(uint8_t pin, RcChannelState *channel);
-void validateRadioSignal();
+bool validateRadioSignal(const RcInput &rc);
 RcInput readRadio();

@@ -272,14 +272,14 @@ void setup() {
   setupOutputPins();
   stopMotorsNow();  
   setupTelemetryLog();
-  validateRadioSignal();
   DEBUG_PRINTLN("Setup ended");
 }
 
 void loop() {
   RcInput rc = readRadio();
 
-  if (handleInvalidSignal(rc)) {
+  if (!validateRadioSignal(rc)) {
+    handleInvalidSignal(rc);
     return;
   }
 

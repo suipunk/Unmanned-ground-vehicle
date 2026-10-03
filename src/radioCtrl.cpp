@@ -58,27 +58,33 @@ RcInput readRadio() {
   return rc;
 }
 
-void validateRadioSignal()
-{
-  DEBUG_PRINTLN("Waiting for radio signal");
-  RcInput rc = readRadio();
-  rc.valid = false;
-  uint32_t debugStartMs = millis();
-  bool ledState = false;
-  while (true) {
-    rc = readRadio();
-    if (rc.valid) {
-      break;
-    }else{
-      if(millis() - debugStartMs >= DEBUG_INTERVAL_MS){
-        debugStartMs = millis();
-        ledState = !ledState;
-        digitalWrite(LED_BUILTIN, ledState ? HIGH : LOW); // todo in function switchLedState();
-        DEBUG_PRINTLN("Waiting for radio signals");
-      }
+bool validateRadioSignal(const RcInput &rc) {
+  static bool hasReportedSignalState = false;
+  static bool previousSignalValid = false;
+  static uint32_t debugStartMs = 0;
+  static bool ledState = false;
+
+  uint32_t now = millis();
+  if (!rc.valid) {
+    if (!hasReportedSignalState || previousSignalValid) {
+      DEBUG_PRINTLN("Waiting for radio signal");
+      debugStartMs = now;
+      ledState = false;
+      ledOff();
     }
-    yield();
+
+    if (now - debugStartMs >= DEBUG_INTERVAL_MS) {
+      debugStartMs = now;
+      ledState = !ledState;
+      digitalWrite(LED_BUILTIN, ledState ? HIGH : LOW);
+      DEBUG_PRINTLN("Waiting for radio signals");
+    }
+  } else if (!hasReportedSignalState || !previousSignalValid) {
+    ledOff();
+    DEBUG_PRINTLN("Radio signal detected");
   }
-  ledOff();
-  DEBUG_PRINTLN("Radio signal detected");
+
+  hasReportedSignalState = true;
+  previousSignalValid = rc.valid;
+  return rc.valid;
 }
